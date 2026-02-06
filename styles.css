@@ -658,15 +658,15 @@ body {
     padding: 8px 12px;
     background: var(--card-bg);
     border-radius: 8px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
 }
 
 .pixel-tools {
     position: absolute;
     top: 96px;
     right: 16px;
-    width: 260px;
-    max-height: calc(100% - 140px);
+    width: 300px;
+    max-height: calc(100% - 120px);
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 10px;
@@ -950,6 +950,7 @@ input[type="number"] {
     gap: 6px;
     align-items: center;
     flex-shrink: 0;
+    flex-wrap: wrap;
 }
 
 .export-controls select {
@@ -959,6 +960,17 @@ input[type="number"] {
     background: var(--bg-color);
     color: var(--text-color);
     font-size: 0.75rem;
+}
+
+.tianshan-export {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 8px 6px 4px;
+    border-top: 1px solid var(--border-color);
+    margin-top: auto;
 }
 
 .pixel-style-toggle {

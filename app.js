@@ -22,6 +22,7 @@ class Emoji2Pixel {
         this.copyBtn = document.getElementById('copyBtn');
         this.clearFramesBtn = document.getElementById('clearFramesBtn');
         this.downloadGifBtn = document.getElementById('downloadGifBtn');
+        this.tianshanUploadBtn = document.getElementById('tianshanUploadBtn');
         this.emojiGrid = document.getElementById('emojiGrid');
         this.emojiNav = document.getElementById('emojiNav');
         this.emojiSearchInput = document.getElementById('emojiSearchInput');
@@ -115,6 +116,10 @@ class Emoji2Pixel {
             offsetY: 0,
             rotate: 0
         };
+
+        this.tianshanHost = '10.10.99.97';
+        this.tianshanImageDir = '/sdcard/images';
+        this.tianshanDevice = 'matrix';
 
         // 画布交互状态
         this.isDragging = false;
@@ -1031,6 +1036,11 @@ class Emoji2Pixel {
 
         // 下载GIF
         this.downloadGifBtn.addEventListener('click', () => this.downloadGIF());
+
+        if (this.tianshanUploadBtn) {
+            this.tianshanUploadBtn.addEventListener('click', () => this.uploadToTianshan());
+        }
+
 
         // 快捷emoji选择 - 点击直接添加帧
         this.emojiGrid.addEventListener('click', (e) => {
@@ -3150,112 +3160,33 @@ class Emoji2Pixel {
      * 下载PNG
      */
     downloadPNG() {
-        const emoji = this.emojiInput.value;
-        if (!emoji && this.frames.length === 0) {
-            this.showToast(this.t('needEmojiOrFrame'));
-            return;
-        }
+        const exportType = this.exportType;
+        const result = this.createExportCanvas(exportType);
+        if (!result) return;
 
-        // 获取当前像素数据
-        let imageData;
-        let renderSettings = this.getGlobalRenderSettings();
-        if (emoji) {
-            const frame = this.getCurrentFrame();
-            const fitSettings = this.getEmojiFitSettingsForFrame(frame && frame.emoji === emoji ? frame : null);
-            imageData = this.emojiToPixels(emoji, this.gridWidth, this.gridHeight, null, fitSettings);
-        } else if (this.frames.length > 0) {
-            const frame = this.frames[this.currentFrameIndex];
-            imageData = frame.imageData;
-            renderSettings = this.getRenderSettingsForFrame(frame);
-        }
-
-        if (!imageData) {
-            this.showToast(this.t('pixelDataUnavailable'));
-            return;
-        }
-
-        const outputCanvas = document.createElement('canvas');
-        const ctx = outputCanvas.getContext('2d');
-        let filename, sizeInfo;
-
-        if (this.exportType === 'preview') {
-            // 导出预览图（带样式和间隙）
-            const previewWidth = this.gridWidth * 20; // 放大20倍
-            const previewHeight = this.gridHeight * 20;
-            outputCanvas.width = previewWidth;
-            outputCanvas.height = previewHeight;
-            this.renderPixels(ctx, imageData, previewWidth, previewHeight, this.pixelStyle, renderSettings);
-            filename = `emoji-preview-${previewWidth}x${previewHeight}.png`;
-            sizeInfo = `${previewWidth}x${previewHeight}`;
+        let filename;
+        if (exportType === 'preview') {
+            filename = `emoji-preview-${result.width}x${result.height}.png`;
         } else {
-            // 导出原始像素
-            const processed = this.applyRenderPipeline(imageData, renderSettings);
-            const outputData = this.prepareOutputImageData(processed);
-            outputCanvas.width = this.gridWidth;
-            outputCanvas.height = this.gridHeight;
-            ctx.putImageData(outputData, 0, 0);
             filename = `emoji-pixel-${this.gridWidth}x${this.gridHeight}.png`;
-            sizeInfo = `${this.gridWidth}x${this.gridHeight}`;
         }
 
         const link = document.createElement('a');
         link.download = filename;
-        link.href = outputCanvas.toDataURL('image/png');
+        link.href = result.canvas.toDataURL('image/png');
         link.click();
-        this.showToast(this.t('pngDownloaded', { size: sizeInfo }));
+        this.showToast(this.t('pngDownloaded', { size: result.sizeInfo }));
     }
 
     /**
      * 复制到剪贴板
      */
     async copyToClipboard() {
-        const emoji = this.emojiInput.value;
-        if (!emoji && this.frames.length === 0) {
-            this.showToast(this.t('needEmojiOrFrame'));
-            return;
-        }
-
-        // 获取当前像素数据
-        let imageData;
-        let renderSettings = this.getGlobalRenderSettings();
-        if (emoji) {
-            const frame = this.getCurrentFrame();
-            const fitSettings = this.getEmojiFitSettingsForFrame(frame && frame.emoji === emoji ? frame : null);
-            imageData = this.emojiToPixels(emoji, this.gridWidth, this.gridHeight, null, fitSettings);
-        } else if (this.frames.length > 0) {
-            const frame = this.frames[this.currentFrameIndex];
-            imageData = frame.imageData;
-            renderSettings = this.getRenderSettingsForFrame(frame);
-        }
-
-        if (!imageData) {
-            this.showToast(this.t('pixelDataUnavailable'));
-            return;
-        }
-
-        const outputCanvas = document.createElement('canvas');
-        const ctx = outputCanvas.getContext('2d');
-
-        if (this.exportType === 'preview') {
-            // 复制预览图（带样式和间隙）
-            const previewWidth = this.gridWidth * 20;
-            const previewHeight = this.gridHeight * 20;
-            outputCanvas.width = previewWidth;
-            outputCanvas.height = previewHeight;
-            this.renderPixels(ctx, imageData, previewWidth, previewHeight, this.pixelStyle, renderSettings);
-        } else {
-            // 复制原始像素
-            const processed = this.applyRenderPipeline(imageData, renderSettings);
-            const outputData = this.prepareOutputImageData(processed);
-            outputCanvas.width = this.gridWidth;
-            outputCanvas.height = this.gridHeight;
-            ctx.putImageData(outputData, 0, 0);
-        }
+        const result = this.createExportCanvas(this.exportType);
+        if (!result) return;
 
         try {
-            const blob = await new Promise(resolve => 
-                outputCanvas.toBlob(resolve, 'image/png')
-            );
+            const blob = await new Promise(resolve => result.canvas.toBlob(resolve, 'image/png'));
             await navigator.clipboard.write([
                 new ClipboardItem({ 'image/png': blob })
             ]);
@@ -3263,6 +3194,202 @@ class Emoji2Pixel {
         } catch (err) {
             this.showToast(this.t('copyFailed'));
             console.error(err);
+        }
+    }
+
+    getActivePixelData() {
+        const emoji = this.emojiInput.value;
+        if (!emoji && this.frames.length === 0) {
+            this.showToast(this.t('needEmojiOrFrame'));
+            return null;
+        }
+
+        let imageData;
+        let renderSettings = this.getGlobalRenderSettings();
+        if (emoji) {
+            const frame = this.getCurrentFrame();
+            const fitSettings = this.getEmojiFitSettingsForFrame(frame && frame.emoji === emoji ? frame : null);
+            imageData = this.emojiToPixels(emoji, this.gridWidth, this.gridHeight, null, fitSettings);
+        } else if (this.frames.length > 0) {
+            const frame = this.frames[this.currentFrameIndex];
+            imageData = frame.imageData;
+            renderSettings = this.getRenderSettingsForFrame(frame);
+        }
+
+        if (!imageData) {
+            this.showToast(this.t('pixelDataUnavailable'));
+            return null;
+        }
+
+        return { imageData, renderSettings };
+    }
+
+    createExportCanvas(exportType) {
+        const source = this.getActivePixelData();
+        if (!source) return null;
+
+        const { imageData, renderSettings } = source;
+        const outputCanvas = document.createElement('canvas');
+        const ctx = outputCanvas.getContext('2d');
+        let sizeInfo;
+
+        if (exportType === 'preview') {
+            const previewWidth = this.gridWidth * 20;
+            const previewHeight = this.gridHeight * 20;
+            outputCanvas.width = previewWidth;
+            outputCanvas.height = previewHeight;
+            this.renderPixels(ctx, imageData, previewWidth, previewHeight, this.pixelStyle, renderSettings);
+            sizeInfo = `${previewWidth}x${previewHeight}`;
+        } else {
+            const processed = this.applyRenderPipeline(imageData, renderSettings);
+            const outputData = this.prepareOutputImageData(processed);
+            outputCanvas.width = this.gridWidth;
+            outputCanvas.height = this.gridHeight;
+            ctx.putImageData(outputData, 0, 0);
+            sizeInfo = `${this.gridWidth}x${this.gridHeight}`;
+        }
+
+        return {
+            canvas: outputCanvas,
+            width: outputCanvas.width,
+            height: outputCanvas.height,
+            sizeInfo
+        };
+    }
+
+    buildTianshanFilename(extension = '.png') {
+        const now = new Date();
+        const pad = (value) => String(value).padStart(2, '0');
+        const timestamp = [
+            now.getFullYear(),
+            pad(now.getMonth() + 1),
+            pad(now.getDate())
+        ].join('') + '-' + [
+            pad(now.getHours()),
+            pad(now.getMinutes()),
+            pad(now.getSeconds())
+        ].join('');
+
+        const normalizedExt = extension.startsWith('.') ? extension : `.${extension}`;
+        return `emoji2pixel-${timestamp}${normalizedExt}`;
+    }
+
+    async createGifBlob() {
+        if (this.frames.length < 2) return null;
+
+        const totalFramesPerKeyframe = this.tweenFrames + 1;
+        const gif = new SimpleGIF({
+            width: this.gridWidth,
+            height: this.gridHeight,
+            delay: parseInt(this.animSpeedInput.value),
+            framesPerKeyframe: totalFramesPerKeyframe
+        });
+
+        for (let i = 0; i < this.frames.length; i++) {
+            gif.addFrame(this.getFramePixelData(i));
+
+            if (this.tweenFrames > 0) {
+                const nextIndex = (i + 1) % this.frames.length;
+                for (let step = 1; step <= this.tweenFrames; step++) {
+                    const progress = step / (this.tweenFrames + 1);
+                    gif.addFrame(this.getTransitionPixelData(i, nextIndex, progress));
+                }
+            }
+        }
+
+        return gif.generate();
+    }
+
+    async requestTianshanJson(endpoint, options = {}) {
+        const url = `http://${this.tianshanHost}/api/v1/${endpoint}`;
+        const response = await fetch(url, options);
+        let data = null;
+        try {
+            data = await response.json();
+        } catch (err) {
+            data = null;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        if (data && typeof data.code === 'number' && data.code !== 0) {
+            throw new Error(data.message || `code ${data.code}`);
+        }
+        return data;
+    }
+
+    async ensureTianshanImagesDir() {
+        try {
+            await this.requestTianshanJson('storage/mkdir', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: this.tianshanImageDir })
+            });
+            return true;
+        } catch (err) {
+            return false;
+        }
+    }
+
+    async uploadToTianshan() {
+        const hasAnimation = this.frames.length >= 2;
+        const filename = this.buildTianshanFilename(hasAnimation ? '.gif' : '.png');
+
+        let blob = null;
+        if (hasAnimation) {
+            blob = await this.createGifBlob();
+        } else {
+            const exportResult = this.createExportCanvas('raw');
+            if (!exportResult) return;
+            blob = await new Promise(resolve => exportResult.canvas.toBlob(resolve, 'image/png'));
+        }
+        if (!blob) {
+            this.showToast(this.t('tianshanUploadFailed', { message: this.t('pixelDataUnavailable') }));
+            return;
+        }
+
+        this.showToast(this.t('tianshanUploading'));
+
+        try {
+            await this.ensureTianshanImagesDir();
+
+            const uploadPath = `${this.tianshanImageDir}/${filename}`;
+            const uploadUrl = `http://${this.tianshanHost}/api/v1/file/upload?path=${encodeURIComponent(uploadPath)}`;
+
+            const uploadResponse = await fetch(uploadUrl, {
+                method: 'POST',
+                body: blob
+            });
+
+            let uploadData = null;
+            try {
+                uploadData = await uploadResponse.json();
+            } catch (err) {
+                uploadData = null;
+            }
+
+            if (!uploadResponse.ok) {
+                throw new Error(`HTTP ${uploadResponse.status}`);
+            }
+
+            if (uploadData && typeof uploadData.code === 'number' && uploadData.code !== 0) {
+                throw new Error(uploadData.message || `code ${uploadData.code}`);
+            }
+
+            const imagePath = `${this.tianshanImageDir}/${filename}`;
+            await this.requestTianshanJson('led/image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device: this.tianshanDevice, path: imagePath, center: 'image' })
+            });
+
+            this.showToast(this.t('tianshanUploaded', { name: filename }));
+        } catch (err) {
+            if (err && err.message && err.message.includes('HTTP 404')) {
+                this.showToast(this.t('tianshanNeedRm01'));
+                return;
+            }
+            this.showToast(this.t('tianshanUploadFailed', { message: err.message || 'error' }));
         }
     }
 
