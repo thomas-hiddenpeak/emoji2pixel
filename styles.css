@@ -962,16 +962,6 @@ input[type="number"] {
     font-size: 0.75rem;
 }
 
-.tianshan-export {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    padding: 8px 6px 4px;
-    border-top: 1px solid var(--border-color);
-    margin-top: auto;
-}
 
 .pixel-style-toggle {
     display: flex;
