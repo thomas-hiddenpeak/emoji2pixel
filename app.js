@@ -1534,30 +1534,19 @@ class Emoji2Pixel {
             processOps: Array.isArray(frame.processOps) ? [...frame.processOps] : []
         };
 
-        const base = this.cloneImageData(frame.baseImageData);
-        const data = base.data;
+        const ops = Array.isArray(frame.processOps) ? [...frame.processOps] : [];
         if (this.selectionMask) {
+            const indices = [];
             for (let i = 0; i < this.selectionMask.length; i++) {
-                if (!this.selectionMask[i]) continue;
-                const idx = i * 4 + 3;
-                if (idx >= 0 && idx < data.length) {
-                    data[idx] = 0;
-                }
+                if (this.selectionMask[i]) indices.push(i);
             }
+            if (indices.length) ops.push({ type: 'erase-mask', indices });
         } else {
             const { x, y, w, h } = this.selectionRect;
-            for (let yy = y; yy < y + h; yy++) {
-                for (let xx = x; xx < x + w; xx++) {
-                    const idx = (yy * base.width + xx) * 4 + 3;
-                    if (idx >= 0 && idx < data.length) {
-                        data[idx] = 0;
-                    }
-                }
-            }
+            ops.push({ type: 'erase-rect', x, y, w, h });
         }
 
-        frame.baseImageData = base;
-        frame.processOps = Array.isArray(frame.processOps) ? frame.processOps : [];
+        frame.processOps = ops;
         frame.imageData = this.applyProcessingPipeline(frame, this.cloneImageData(frame.baseImageData));
         frame.isImage = true;
         frame.imageElement = this.imageDataToCanvas(frame.imageData);
@@ -1594,7 +1583,7 @@ class Emoji2Pixel {
             processOps: Array.isArray(frame.processOps) ? [...frame.processOps] : []
         };
 
-        const base = this.cloneImageData(frame.baseImageData);
+        const base = this.applyProcessingPipeline(frame, this.cloneImageData(frame.baseImageData));
         const data = base.data;
         if (this.selectionMask) {
             for (let i = 0; i < this.selectionMask.length; i++) {
@@ -1623,7 +1612,7 @@ class Emoji2Pixel {
         }
 
         frame.baseImageData = base;
-        frame.processOps = Array.isArray(frame.processOps) ? frame.processOps : [];
+        frame.processOps = [];
         frame.imageData = this.applyProcessingPipeline(frame, this.cloneImageData(frame.baseImageData));
         frame.isImage = true;
         frame.imageElement = this.imageDataToCanvas(frame.imageData);
@@ -1696,7 +1685,7 @@ class Emoji2Pixel {
             processOps: Array.isArray(frame.processOps) ? [...frame.processOps] : []
         };
 
-        const base = this.cloneImageData(frame.baseImageData);
+        const base = this.applyProcessingPipeline(frame, this.cloneImageData(frame.baseImageData));
         const { width, height, data } = this.selectionClipboard;
         const startX = this.selectionRect ? this.selectionRect.x : 0;
         const startY = this.selectionRect ? this.selectionRect.y : 0;
@@ -1716,7 +1705,7 @@ class Emoji2Pixel {
         }
 
         frame.baseImageData = base;
-        frame.processOps = Array.isArray(frame.processOps) ? frame.processOps : [];
+        frame.processOps = [];
         frame.imageData = this.applyProcessingPipeline(frame, this.cloneImageData(frame.baseImageData));
         frame.isImage = true;
         frame.imageElement = this.imageDataToCanvas(frame.imageData);
@@ -2592,6 +2581,7 @@ class Emoji2Pixel {
             if (frame.isImage || frame.emoji === emoji) {
                 frame.transform = { ...this.transform };
                 frame.baseImageData = this.cloneImageData(sampled);
+                if (frame.isImage) frame.processOps = [];
                 frame.imageData = this.applyProcessingPipeline(frame, frame.baseImageData);
                 // 更新缩略图
                 const thumbCtx = frame.thumbCanvas.getContext('2d');
@@ -3016,11 +3006,11 @@ class Emoji2Pixel {
      */
     rebuildFrames() {
         this.frames.forEach(frame => {
-            // 使用保存的变换状态重建，如果没有则使用默认变换
             const transform = frame.transform || { scale: 100, offsetX: 0, offsetY: 0, rotate: 0 };
             const fitSettings = this.getEmojiFitSettingsForFrame(frame);
             if (frame.isImage && frame.imageElement) {
                 frame.baseImageData = this.imageToPixels(frame.imageElement, this.gridWidth, this.gridHeight, transform, fitSettings);
+                frame.processOps = [];
             } else {
                 frame.baseImageData = this.emojiToPixels(frame.emoji, this.gridWidth, this.gridHeight, transform, fitSettings);
             }
