@@ -127,11 +127,11 @@ class Emoji2Pixel {
         this.dragStart = { x: 0, y: 0 };
         this.transformStart = { offsetX: 0, offsetY: 0, rotate: 0 };
 
-        // 用于渲染emoji的离屏canvas
+        // 用于渲染emoji的离屏canvas（willReadFrequently 优化 getImageData 性能）
         this.offscreenCanvas = document.createElement('canvas');
-        this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+        this.offscreenCtx = this.offscreenCanvas.getContext('2d', { willReadFrequently: true });
         this.measureCanvas = document.createElement('canvas');
-        this.measureCtx = this.measureCanvas.getContext('2d');
+        this.measureCtx = this.measureCanvas.getContext('2d', { willReadFrequently: true });
 
         this.emojiSections = [];
         this.emojiNavButtons = [];
@@ -167,6 +167,11 @@ class Emoji2Pixel {
     }
 
     async loadLocaleIndex() {
+        const bundled = typeof window !== 'undefined' && window.EMOJI2PIXEL_LOCALES;
+        if (bundled && Array.isArray(bundled.index)) {
+            this.availableLocales = bundled.index;
+            return;
+        }
         try {
             const response = await fetch('locales/index.json');
             if (!response.ok) throw new Error('Locale index load failed');
@@ -218,6 +223,11 @@ class Emoji2Pixel {
 
     async loadLocale(lang) {
         if (this.translations[lang]) return;
+        const bundled = typeof window !== 'undefined' && window.EMOJI2PIXEL_LOCALES;
+        if (bundled && bundled.locales && bundled.locales[lang]) {
+            this.translations[lang] = bundled.locales[lang];
+            return;
+        }
         try {
             const response = await fetch(`locales/${lang}.json`);
             if (!response.ok) throw new Error('Locale load failed');
@@ -1010,7 +1020,7 @@ class Emoji2Pixel {
             if (!valueInput.valid) {
                 return;
             }
-            const value = clamp(Math.round(valueInput.value), 50, 5000);
+            const value = clamp(Math.round(valueInput.value), 20, 5000);
             if (commit) {
                 this.animSpeedInput.value = value;
             }
@@ -2737,7 +2747,7 @@ class Emoji2Pixel {
             return;
         }
 
-        const avgDuration = Math.max(50, Math.min(5000, Math.round(totalDuration / frames.length)));
+        const avgDuration = Math.max(20, Math.min(5000, Math.round(totalDuration / frames.length)));
         this.tweenFrames = 0;
         this.tweenFramesInput.value = 0;
         this.animSpeedInput.value = avgDuration;
@@ -3277,22 +3287,27 @@ class Emoji2Pixel {
     async createGifBlob() {
         if (this.frames.length < 2) return null;
 
+        const animSpeed = parseInt(this.animSpeedInput.value);
         const totalFramesPerKeyframe = this.tweenFrames + 1;
+        const usePerFrameDelay = this.tweenFrames === 0 && this.frames.every(f => Number.isFinite(f.durationMs) && f.durationMs > 0);
         const gif = new SimpleGIF({
             width: this.gridWidth,
             height: this.gridHeight,
-            delay: parseInt(this.animSpeedInput.value),
+            delay: animSpeed,
             framesPerKeyframe: totalFramesPerKeyframe
         });
 
         for (let i = 0; i < this.frames.length; i++) {
-            gif.addFrame(this.getFramePixelData(i));
-
-            if (this.tweenFrames > 0) {
-                const nextIndex = (i + 1) % this.frames.length;
-                for (let step = 1; step <= this.tweenFrames; step++) {
-                    const progress = step / (this.tweenFrames + 1);
-                    gif.addFrame(this.getTransitionPixelData(i, nextIndex, progress));
+            if (usePerFrameDelay) {
+                gif.addFrame(this.getFramePixelData(i), this.frames[i].durationMs);
+            } else {
+                gif.addFrame(this.getFramePixelData(i));
+                if (this.tweenFrames > 0) {
+                    const nextIndex = (i + 1) % this.frames.length;
+                    for (let step = 1; step <= this.tweenFrames; step++) {
+                        const progress = step / (this.tweenFrames + 1);
+                        gif.addFrame(this.getTransitionPixelData(i, nextIndex, progress));
+                    }
                 }
             }
         }
@@ -3405,26 +3420,27 @@ class Emoji2Pixel {
         this.showToast(this.t('gifGenerating'));
 
         try {
-            // 使用简化的GIF生成方法
+            const animSpeed = parseInt(this.animSpeedInput.value);
             const totalFramesPerKeyframe = this.tweenFrames + 1;
+            const usePerFrameDelay = this.tweenFrames === 0 && this.frames.every(f => Number.isFinite(f.durationMs) && f.durationMs > 0);
             const gif = new SimpleGIF({
                 width: this.gridWidth,
                 height: this.gridHeight,
-                delay: parseInt(this.animSpeedInput.value),
+                delay: animSpeed,
                 framesPerKeyframe: totalFramesPerKeyframe
             });
 
-            // 添加每一帧及其过渡帧
             for (let i = 0; i < this.frames.length; i++) {
-                // 添加当前关键帧
-                gif.addFrame(this.getFramePixelData(i));
-                
-                // 添加到下一帧的过渡（如果有中间帧设置）
-                if (this.tweenFrames > 0) {
-                    const nextIndex = (i + 1) % this.frames.length;
-                    for (let step = 1; step <= this.tweenFrames; step++) {
-                        const progress = step / (this.tweenFrames + 1);
-                        gif.addFrame(this.getTransitionPixelData(i, nextIndex, progress));
+                if (usePerFrameDelay) {
+                    gif.addFrame(this.getFramePixelData(i), this.frames[i].durationMs);
+                } else {
+                    gif.addFrame(this.getFramePixelData(i));
+                    if (this.tweenFrames > 0) {
+                        const nextIndex = (i + 1) % this.frames.length;
+                        for (let step = 1; step <= this.tweenFrames; step++) {
+                            const progress = step / (this.tweenFrames + 1);
+                            gif.addFrame(this.getTransitionPixelData(i, nextIndex, progress));
+                        }
                     }
                 }
             }
@@ -3557,30 +3573,31 @@ class Emoji2Pixel {
 
 /**
  * 简化的GIF生成器
+ * 支持单一 delay 或每帧独立 delay（addFrame 传入 delayMs 时）
  */
 class SimpleGIF {
     constructor(options) {
         this.width = options.width || 32;
         this.height = options.height || 32;
-        // 每帧延迟 = 总时间 / 每关键帧的帧数
+        // 每帧延迟 = 总时间 / 每关键帧的帧数；GIF 单位：百分之一秒
         const framesPerKeyframe = options.framesPerKeyframe || 1;
-        this.delay = Math.max(2, Math.round((options.delay || 500) / framesPerKeyframe / 10)); // GIF延迟单位是10ms
+        this.delay = Math.max(2, Math.round((options.delay || 500) / framesPerKeyframe / 10));
         this.frames = [];
     }
 
-    addFrame(imageData) {
-        // 直接存储RGBA像素数据
-        this.frames.push(new Uint8Array(imageData.data));
+    addFrame(imageData, delayMs) {
+        const data = new Uint8Array(imageData.data);
+        const delay = typeof delayMs === 'number' && delayMs >= 0
+            ? Math.max(2, Math.round(delayMs / 10))
+            : this.delay;
+        this.frames.push({ data, delay });
     }
 
     generate() {
-        // 构建GIF文件
         const gif = new GIFBuilder(this.width, this.height);
-        
-        this.frames.forEach(frameData => {
-            gif.addFrame(frameData, this.delay);
+        this.frames.forEach(({ data, delay }) => {
+            gif.addFrame(data, delay);
         });
-        
         return gif.build();
     }
 }
